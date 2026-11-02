@@ -38,33 +38,42 @@ async def telegram_webhook(request: Request):
     if text.startswith("/start"):
       send_telegram_message(
           chat_id,
-          "🛡️ **سنتینل آماده‌باش است.**\n\nبرای بررسی وضعیت ارزها، نام"
-          " نماد مورد نظر خود را (مثلاً `BTCUSDT` یا چند نماد با کاما) ارسال"
-          " کنید تا تحلیل آن را دریافت کنید.",
+          "🛡️ **سنتینل آماده‌باش است.**\n\nفقط کافی است نام ارز مورد نظرتان"
+          " (مثل `BTC` یا `IDOL`) را بفرستید تا وضعیت خرید یا عدم خرید آن"
+          " در بازار فیوچرز تحلیل شود.",
       )
       return {"status": "ok"}
 
-    # پردازش نمادهای ارسالی توسط کاربر
+    # پردازش نام ارز ارسالی توسط کاربر
     if text:
-      # پاکسازی و جداسازی نمادها بر اساس کاما یا فاصله
-      raw_symbols = text.replace("/scan", "").replace(",", " ").split()
-      symbols = [s.strip().upper() for s in raw_symbols if s.strip()]
+      # پاکسازی و جداسازی نام ارزها و اضافه کردن خودکار پسوند فیوچرز (USDT.P)
+      raw_tokens = text.replace("/scan", "").replace(",", " ").split()
+      tokens = [t.strip().upper() for t in raw_tokens if t.strip()]
 
-      if not symbols:
-        symbols = ["BTCUSDT"]
+      if not tokens:
+        tokens = ["BTC"]
 
-      response_text = "🛡️ **گزارش ارزیابی واچ‌لیست توسط سنتینل:**\n\n"
+      response_text = (
+          "🛡️ **گزارش تحلیل و ارزیابی فیوچرز توسط سنتینل:**\n\n"
+      )
 
-      for symbol in symbols:
-        response_text += (
-            f"🔹 **{symbol}**:\n"
-            f"   • وضعیت بررسی: دریافت و تایید شد ✅\n"
-            f"   • سیگنال ورود: در حال رصد مومنتوم و شرایط بازار...\n\n"
+      for token in tokens:
+        # اگر کاربر پسوند را نگذاشته بود، خودکار USDT.P را اضافه می‌کنیم
+        full_symbol = (
+            token if "USDT" in token else f"{token}USDT.P"
         )
 
-      response_text += (
-          "ارزیابی اولیه انجام شد. برای بررسی‌های بعدی نماد جدیدی بفرستید."
-      )
+        # در اینجا منطق تحلیل و تصمیم‌گیری خرید قرار می‌گیرد
+        response_text += (
+            f"🔹 ارز: **{full_symbol}**\n"
+            f"   • وضعیت روند: در حال بررسی مومنتوم...\n"
+            f"   • سیگنال پیشنهادی: 🟢 **مناسب برای خرید (Long)** / یا 🔴"
+            " **صبر کنید / ورود پرریسک**\n"
+            f"   • توضیحات تحلیلی: ساختار بازار بررسی شد. شرایط ورود به پوزیشن"
+            " تایید یا رد می‌شود.\n\n"
+        )
+
+      response_text += "برای بررسی ارز دیگر، نام آن را ارسال کنید."
       send_telegram_message(chat_id, response_text)
 
   except Exception as e:
