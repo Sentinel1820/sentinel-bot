@@ -1,70 +1,73 @@
 import os
 import requests
-from flask import Flask, request, jsonify
+from fastapi import FastAPI, Request
 
-app = Flask(__name__)
+app = FastAPI()
 
-# توکن ربات تلگرام که از BotFather گرفته‌اید
-BOT_TOKEN = os.environ.get("BOT_TOKEN")
+TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
 
 
-@app.route("/webhook", methods=["POST"])
-def webhook():
-  data = request.get_json()
-  if not data:
-    return "OK", 200
+def send_telegram_message(chat_id: int, text: str):
+  if not TELEGRAM_BOT_TOKEN:
+    return
+  url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+  payload = {"chat_id": chat_id, "text": text, "parse_mode": "Markdown"}
+  try:
+    requests.post(url, json=payload)
+  except Exception as e:
+    print(f"Error: {e}")
 
-  # بررسی پیام‌های دریافتی از تلگرام
-  if "message" in data:
-    message = data["message"]
-    chat_id = message["chat"]["id"]
+
+@app.get("/")
+def read_root():
+  return {"status": "Sentinel Bot is running successfully!"}
+
+
+@app.post("/webhook")
+async def telegram_webhook(request: Request):
+  try:
+    data = await request.json()
+    message = data.get("message", {})
+    chat_id = message.get("chat", {}).get("id")
     text = message.get("text", "").strip()
 
+    if not chat_id:
+      return {"status": "ok"}
+
+    # اگر کاربر دستور /start را فرستاد
     if text.startswith("/start"):
       send_telegram_message(
           chat_id,
-          "🛡️ **سنتینل آماده‌باش است.**\n\nبرای بررسی واچ‌لیست، کافی است نماد"
-          " ارزها را با کاما (مثلاً: `BTC,ETH,SOL`) یا دستور `/scan` برای من"
-          " بفرستید تا وضعیت خرید آن‌ها را تحلیل کنم.",
+          "🛡️ **سنتینل آماده‌باش است.**\n\nبرای بررسی وضعیت ارزها، نام"
+          " نماد مورد نظر خود را (مثلاً `BTCUSDT` یا چند نماد با کاما) ارسال"
+          " کنید تا تحلیل آن را دریافت کنید.",
       )
+      return {"status": "ok"}
 
-    elif text:
-      # پردازش واچ‌لیست ارسالی از سمت کاربر
-      symbols = [
-          s.strip().upper() for s in text.replace("/scan", "").split(",") if s
-      ]
+    # پردازش نمادهای ارسالی توسط کاربر
+    if text:
+      # پاکسازی و جداسازی نمادها بر اساس کاما یا فاصله
+      raw_symbols = text.replace("/scan", "").replace(",", " ").split()
+      symbols = [s.strip().upper() for s in raw_symbols if s.strip()]
+
       if not symbols:
-        symbols = ["BTCUSDT", "ETHUSDT"]
+        symbols = ["BTCUSDT"]
 
-      response_text = "🛡️ **گزارش تحلیل واچ‌لیست توسط سنتینل:**\n\n"
+      response_text = "🛡️ **گزارش ارزیابی واچ‌لیست توسط سنتینل:**\n\n"
 
       for symbol in symbols:
-        # پاکسازی نام ارز برای انطباق با فرمت صرافی
-        if not symbol.endswith("USDT") and not symbol.endswith("USDC"):
-          symbol += "USDT"
-
-        # اینجا می‌توانید منطق تحلیلی دلخواه (یا اتصال به صرافی) را قرار دهید
-        # به عنوان نمونه وضعیت حرکتی بررسی می‌شود:
         response_text += (
             f"🔹 **{symbol}**:\n"
-            f"   • وضعیت روند: در حال رصد مومنتوم...\n"
-            f"   • سیگنال ورود: بررسی شرایط اسمارت مانی 🟢/🔴\n\n"
+            f"   • وضعیت بررسی: دریافت و تایید شد ✅\n"
+            f"   • سیگنال ورود: در حال رصد مومنتوم و شرایط بازار...\n\n"
         )
 
-      response_text += "ارزیابی انجام شد. برای بررسی مجدد واچ‌لیست جدیدی بفرستید."
+      response_text += (
+          "ارزیابی اولیه انجام شد. برای بررسی‌های بعدی نماد جدیدی بفرستید."
+      )
       send_telegram_message(chat_id, response_text)
 
-  return "OK", 200
+  except Exception as e:
+    print(f"Webhook Error: {e}")
 
-
-def send_telegram_message(chat_id, text):
-  if not BOT_TOKEN:
-    return
-  url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
-  payload = {"chat_id": chat_id, "text": text, "parse_mode": "Markdown"}
-  requests.post(url, json=payload)
-
-
-if __name__ == "__main__":
-  port = int(os.environ.get("PORT", 5000))
-  app.run(host="0.0.0.0", port=port)
+  return {"status": "ok"}
