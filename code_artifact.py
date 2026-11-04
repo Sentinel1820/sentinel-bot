@@ -6,20 +6,14 @@ from fastapi import FastAPI, Request
 
 app = FastAPI()
 
-# توکن ربات تلگرام خود را اینجا وارد کنید (یا از متغیر محیطی بخوانید)
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "YOUR_BOT_TOKEN_HERE")
-
-# تنظیمات مدیریت کاربران (حداکثر ۱۲ نفر برای خانواده و دوستان)
 MAX_USERS = 12
 USERS_FILE = "authorized_users.json"
 ENV_ALLOWED_USERS = os.getenv("ALLOWED_USERS", "")
 
-# تنظیمات پایه اندیکاتور
 SENSITIVITY = 5.5
 ATR_PERIOD = 10
 VOL_MULT = 1.8
-
-# تایم‌فریم‌های مورد بررسی برای اسکن مولتی‌تایم
 TIMEFRAMES = ["5m", "15m", "1h"]
 
 def load_users() -> list:
@@ -194,9 +188,6 @@ def analyze_single_timeframe(klines: list):
             trend[i] = trend[i - 1]
 
     last_idx = len(klines) - 2
-    buy_sig = trend[last_idx] == 1 and trend[last_idx - 1] != 1
-    sell_sig = trend[last_idx] == -1 and trend[last_idx - 1] != -1
-
     b_count, s_count = 999, 999
     for i in range(20, last_idx + 1):
         if trend[i] == 1 and trend[i-1] != 1:
@@ -229,8 +220,7 @@ def analyze_single_timeframe(klines: list):
         "is_bull": is_bull,
         "b_count": b_count,
         "s_count": s_count,
-        "is_fake": is_fake,
-        "reason": "تله فیک / ابر کومو" if is_fake else "حجم و روند تاییدشده"
+        "is_fake": is_fake
     }
 
 def evaluate_multi_timeframe(symbol: str):
@@ -243,52 +233,59 @@ def evaluate_multi_timeframe(symbol: str):
         results[tf] = analyze_single_timeframe(klines)
     return results, clean_sym
 
+@app.get("/")
+def read_root():
+    return {"status": "Sentinel Bot is running successfully!"}
+
 @app.post("/")
 async def telegram_webhook(req: Request):
-    data = await req.json()
-    message = data.get("message", {})
-    chat_id = message.get("chat", {}).get("id")
-    text = message.get("text", "").strip()
+    try:
+        data = await req.json()
+        message = data.get("message", {})
+        chat_id = message.get("chat", {}).get("id")
+        text = message.get("text", "").strip()
 
-    if not chat_id:
-        return {"ok": True}
-
-    if text.startswith("/start"):
-        success, msg = save_user(chat_id)
-        send_telegram_message(chat_id, msg + "\n\nسلام! نام هر ارز (مثل `SOL` یا `PEPE`) را بفرست تا سنتینل حکم نهایی را در ۳ تایم‌فریم اعلام کند.")
-        return {"ok": True}
-
-    users = load_users()
-    if chat_id not in users:
-        send_telegram_message(chat_id, "⛔ شما در لیست کاربران مجاز سنتینل نیستید. لطفاً ابتدا /start را بزنید.")
-        return {"ok": True}
-
-    if text and not text.startswith("/"):
-        multi_res, clean_sym = evaluate_multi_timeframe(text)
-        if not multi_res:
-            send_telegram_message(chat_id, f"❌ ارز `{text}` در فیوچرز بایننس یافت نشد یا داده کافی نداشت.")
+        if not chat_id:
             return {"ok": True}
 
-        msg = f"🛡️ **ارزیابی مولتی‌تایم سنتینل:** `{clean_sym}`\n━━━━━━━━━━━━━━━━━━━━\n"
-        for tf, res in multi_res.items():
-            is_bull = res["is_bull"]
-            is_fake = res["is_fake"]
-            qual = "⛔ [فیک / تله - نگیر]" if is_fake else "✅ [معتبر]"
+        if text.startswith("/start"):
+            success, msg = save_user(chat_id)
+            send_telegram_message(chat_id, msg + "\n\nسلام! نام هر ارز (مثل `SOL` یا `PEPE`) را بفرست تا سنتینل حکم نهایی را در ۳ تایم‌فریم اعلام کند.")
+            return {"ok": True}
 
-            if is_bull and res["b_count"] <= 2:
-                candle_str = f"({res['b_count'] + 1}/3)"
-                status_text = f"🟢 معتبر BUY بگیر {candle_str} {qual}"
-            elif not is_bull and res["s_count"] <= 2:
-                candle_str = f"({res['s_count'] + 1}/3)"
-                status_text = f"🔴 معتبر SELL بگیر {candle_str} {qual}"
-            elif is_bull:
-                status_text = f"⏳ روند صعودی (گذشته از کندل 3/3) {qual}"
-            else:
-                status_text = f"⏳ روند نزولی (گذشته از کندل 3/3) {qual}"
+        users = load_users()
+        if chat_id not in users:
+            send_telegram_message(chat_id, "⛔ شما در لیست کاربران مجاز سنتینل نیستید. لطفاً ابتدا /start را بزنید.")
+            return {"ok": True}
 
-            msg += f"⏱ **تایم {tf}:**\n   └ {status_text}\n"
+        if text and not text.startswith("/"):
+            multi_res, clean_sym = evaluate_multi_timeframe(text)
+            if not multi_res:
+                send_telegram_message(chat_id, f"❌ ارز `{text}` در فیوچرز بایننس یافت نشد یا داده کافی نداشت.")
+                return {"ok": True}
 
-        msg += "━━━━━━━━━━━━━━━━━━━━\n💡 به شماره کندل‌ها (1/3 تا 3/3) و وضعیت معتبر/تله دقت کنید."
-        send_telegram_message(chat_id, msg)
+            msg = f"🛡️ **ارزیابی مولتی‌تایم سنتینل:** `{clean_sym}`\n━━━━━━━━━━━━━━━━━━━━\n"
+            for tf, res in multi_res.items():
+                is_bull = res["is_bull"]
+                is_fake = res["is_fake"]
+                qual = "⛔ [فیک / تله - نگیر]" if is_fake else "✅ [معتبر]"
+
+                if is_bull and res["b_count"] <= 2:
+                    candle_str = f"({res['b_count'] + 1}/3)"
+                    status_text = f"🟢 معتبر BUY بگیر {candle_str} {qual}"
+                elif not is_bull and res["s_count"] <= 2:
+                    candle_str = f"({res['s_count'] + 1}/3)"
+                    status_text = f"🔴 معتبر SELL بگیر {candle_str} {qual}"
+                elif is_bull:
+                    status_text = f"⏳ روند صعودی (گذشته از کندل 3/3) {qual}"
+                else:
+                    status_text = f"⏳ روند نزولی (گذشته از کندل 3/3) {qual}"
+
+                msg += f"⏱ **تایم {tf}:**\n   └ {status_text}\n"
+
+            msg += "━━━━━━━━━━━━━━━━━━━━\n💡 به شماره کندل‌ها (1/3 تا 3/3) و وضعیت معتبر/تله دقت کنید."
+            send_telegram_message(chat_id, msg)
+    except Exception as e:
+        print(f"Webhook Error: {e}")
 
     return {"ok": True}
