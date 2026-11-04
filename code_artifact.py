@@ -10,6 +10,9 @@ TELEGRAM_API_URL = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}"
 # لیست چت‌آیدی‌های مجاز (VIP) - تا سقف ۱۰ نفر
 ALLOWED_USERS = [int(uid.strip()) for uid in os.getenv("ALLOWED_USERS", "").split(",") if uid.strip().isdigit()]
 
+# دیکشنری برای نگهداری وضعیت روشن یا خاموش بودن ربات برای هر کاربر
+USER_STATES = {}
+
 def send_telegram_message(chat_id: int, text: str):
     try:
         url = f"{TELEGRAM_API_URL}/sendMessage"
@@ -25,7 +28,7 @@ async def telegram_webhook(request: Request):
     if "message" in data:
         message = data["message"]
         chat_id = message["chat"]["id"]
-        text = message.get("text", "").strip()
+        text = message.get("text", "").strip().lower()
         
         # بررسی محدودیت لیست مجاز VIP (سقف ۱۰ نفر)
         if ALLOWED_USERS and chat_id not in ALLOWED_USERS:
@@ -36,10 +39,29 @@ async def telegram_webhook(request: Request):
                 return {"status": "unauthorized"}
         
         if text.startswith("/start"):
+            USER_STATES[chat_id] = "ON"
             welcome_text = (
                 "🤖 **به دیده‌بان اتوماتیک سنتینل خوش آمدید!**\n\n"
-                "این ربات به صورت هوشمند در پس‌زمینه بازار را اسکن کرده و میم‌کوین‌ها و ارزهای داغ دارای حجم مشکوک را بدون نیاز به استعلام دستی، به صورت منظم به شما گزارش می‌دهد."
+                "وضعیت ربات در حال حاضر: **🟢 روشن**\n\n"
+                "دستورات کنترلی:\n"
+                "🔹 برای توقف موقت و استراحت، بفرستید: **خاموش**\n"
+                "🔸 برای شروع مجدد و رصد بازار، بفرستید: **روشن**"
             )
             send_telegram_message(chat_id, welcome_text)
+            
+        elif text == "خاموش":
+            USER_STATES[chat_id] = "OFF"
+            send_telegram_message(chat_id, "🔴 دیده‌بان سنتینل با موفقیت **خاموش** شد. هر زمان خواستید استراحت تمام شود، کافی است بفرستید **روشن**.")
+            
+        elif text == "روشن":
+            USER_STATES[chat_id] = "ON"
+            send_telegram_message(chat_id, "🟢 دیده‌بان سنتینل **روشن** شد و رصد ۲۴ ساعته بازار و میم‌کوین‌ها مجدداً آغاز گشت.")
+            
+        else:
+            current_state = USER_STATES.get(chat_id, "ON")
+            if current_state == "OFF":
+                send_telegram_message(chat_id, "💤 ربات در حال حاضر در حالت **خاموش** است. برای دریافت گزارش‌ها، لطفاً کلمه **روشن** را ارسال کنید.")
+            else:
+                send_telegram_message(chat_id, "✅ دیده‌بان فعال است. برای توقف موقت، کلمه **خاموش** را ارسال کنید.")
             
     return {"status": "ok"}
