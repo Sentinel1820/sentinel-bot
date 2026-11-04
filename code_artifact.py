@@ -8,21 +8,27 @@ TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "9169877686:AAFlc1WXpQHZBE1
 
 def get_binance_analysis(raw_symbol: str):
     try:
-        # تبدیل کامل ورودی به حروف بزرگ و پاکسازی اضافات
+        # پاکسازی و تبدیل نماد به فرمت استاندارد بایننس
         symbol = raw_symbol.upper().replace("USDT", "").replace(".P", "").strip()
         pair = symbol + "USDT"
 
-        # دریافت کندل‌ها از API عمومی بایننس
-        url_5m = f"https://api.binance.com/api/v3/klines?symbol={pair}&interval=5m&limit=5"
-        res_5m = requests.get(url_5m, timeout=5).json()
+        # استفاده از دیتاسنتر رسمی و بدون محدودیت بایننس (Vision API)
+        url = f"https://data-api.binance.vision/api/v3/klines?symbol={pair}&interval=5m&limit=5"
         
-        # اگر بایننس خطا داد یا نماد اشتباه بود
-        if isinstance(res_5m, dict) and "code" in res_5m:
+        headers = {'User-Agent': 'Mozilla/5.0'}
+        response = requests.get(url, headers=headers, timeout=5)
+        
+        if response.status_code != 200:
+            return None
+
+        res_5m = response.json()
+        if not isinstance(res_5m, list) or len(res_5m) < 2:
             return None
 
         last_close = float(res_5m[-1][4])
         prev_close = float(res_5m[-2][4])
-        trend_emoji = "🟢 مناسب برای خرید (Long)" if last_close > prev_close else "🔴 نزولی / صبر کنید"
+        
+        trend_emoji = "🟢 مناسب برای خرید (Long)" if last_close > prev_close else "🔴 نزولی / صبر جهت ورود"
         candle_count = "3/3 (تاییدیه ساختار بازار)" if last_close > prev_close else "1/3 (در حال اصلاح)"
 
         report = (
@@ -32,7 +38,7 @@ def get_binance_analysis(raw_symbol: str):
             f"📈 **مومنتوم تایم‌فریم 5m / 15m:** فعال\n"
             f"🕯 **شمارش کندل‌ها:** کندل {candle_count}\n"
             f"🎯 **سیگنال پیشنهادی:** {trend_emoji}\n\n"
-            f"💡 *تحلیل تخصصی:* داده‌ها مستقیماً از فید بایننس استخراج شد."
+            f"💡 *تحلیل تخصصی:* داده‌ها مستقیماً از فید رسمی بایننس استخراج شد."
         )
         return report
     except Exception as e:
@@ -56,7 +62,7 @@ async def telegram_webhook(request: Request):
         if text.upper() == "/START":
             reply_text = (
                 "🛡 به ربات تحلیلگر **سنتینل (متصل به بایننس)** خوش آمدید.\n\n"
-                "لطفاً نام ارز مورد نظر خود (مثلاً `near`، `bnb`، `SOL`) را ارسال کنید تا تحلیل زنده فیوچرز صادر شود."
+                "لطفاً نام ارز مورد نظر خود (مثل `near`، `bnb`، `ada`) را ارسال کنید تا تحلیل زنده فیوچرز صادر شود."
             )
         else:
             analysis_result = get_binance_analysis(text)
