@@ -1,6 +1,5 @@
 import os
 import requests
-import asyncio
 from fastapi import FastAPI, Request
 
 app = FastAPI()
@@ -9,44 +8,7 @@ TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "9169877686:AAF1c1WxQHZBE1N
 TELEGRAM_API_URL = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}"
 
 # لیست چت‌آیدی‌های مجاز (VIP) - تا سقف ۱۰ نفر
-# می‌توانید چت‌آیدی خودتان و دوستانتان را اینجا با کاما جدا کنید
 ALLOWED_USERS = [int(uid.strip()) for uid in os.getenv("ALLOWED_USERS", "").split(",") if uid.strip().isdigit()]
-
-def get_hot_memecoins():
-    """
-    اسکن صرافی بایننس برای پیدا کردن توکن‌ها و میم‌کوین‌های دارای حجم مشکوک یا تغییرات مثبت
-    """
-    url = "https://data-api.binance.vision/api/v3/ticker/24hr"
-    try:
-        response = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=10)
-        if response.status_code != 200:
-            return []
-        
-        data = response.json()
-        hot_list = []
-        
-        for item in data:
-            symbol = item.get('symbol', '')
-            # بررسی جفت‌ارزهای USDT و فیلتر اولیه نوسان مثبت و حجم مناسب
-            if symbol.endswith('USDT'):
-                price_change = float(item.get('priceChangePercent', 0))
-                volume = float(item.get('quoteVolume', 0))
-                
-                # فیلتر هوشمند: ارزهایی که بین 3 تا 50 درصد رشد مثبت داشتند و نقدینگی بالایی دارند
-                if 3.0 <= price_change <= 50.0 and volume > 1000000:
-                    hot_list.append({
-                        "symbol": symbol,
-                        "price": item.get('lastPrice'),
-                        "change": price_change,
-                        "volume": volume
-                    })
-        
-        # مرتب‌سازی بر اساس بیشترین درصد تغییر
-        hot_list = sorted(hot_list, key=lambda x: x['change'], reverse=True)
-        return hot_list[:3] # برترین‌ها برای جلوگیری از اسپم
-    except Exception as e:
-        print(f"Error fetching hot coins: {e}")
-        return []
 
 def send_telegram_message(chat_id: int, text: str):
     try:
@@ -76,7 +38,7 @@ async def telegram_webhook(request: Request):
         if text.startswith("/start"):
             welcome_text = (
                 "🤖 **به دیده‌بان اتوماتیک سنتینل خوش آمدید!**\n\n"
-                "این ربات به صورت هوشمند در پس‌زمینه بازار را اسکن کرده و میم‌کوین‌ها و ارزهای داغ دارای حجم مشکوک را به صورت منظم گزارش می‌دهد."
+                "این ربات به صورت هوشمند در پس‌زمینه بازار را اسکن کرده و میم‌کوین‌ها و ارزهای داغ دارای حجم مشکوک را بدون نیاز به استعلام دستی، به صورت منظم به شما گزارش می‌دهد."
             )
             send_telegram_message(chat_id, welcome_text)
             
