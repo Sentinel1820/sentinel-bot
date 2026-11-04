@@ -1,83 +1,83 @@
 import os
 import requests
+import asyncio
 from fastapi import FastAPI, Request
 
 app = FastAPI()
 
-TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "9169877686:AAFlc1WXpQHZBE1NlKs1fspQs2Y8Mr6WjTM")
+TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "9169877686:AAF1c1WxQHZBE1NIKs1fspQs2Y8Mr6WJtm")
+TELEGRAM_API_URL = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}"
 
-def get_binance_analysis(raw_symbol: str):
+# لیست چت‌آیدی‌های مجاز (VIP) - تا سقف ۱۰ نفر
+# می‌توانید چت‌آیدی خودتان و دوستانتان را اینجا با کاما جدا کنید
+ALLOWED_USERS = [int(uid.strip()) for uid in os.getenv("ALLOWED_USERS", "").split(",") if uid.strip().isdigit()]
+
+def get_hot_memecoins():
+    """
+    اسکن صرافی بایننس برای پیدا کردن توکن‌ها و میم‌کوین‌های دارای حجم مشکوک یا تغییرات مثبت
+    """
+    url = "https://data-api.binance.vision/api/v3/ticker/24hr"
     try:
-        # پاکسازی و تبدیل نماد به فرمت استاندارد بایننس
-        symbol = raw_symbol.upper().replace("USDT", "").replace(".P", "").strip()
-        pair = symbol + "USDT"
-
-        # استفاده از دیتاسنتر رسمی و بدون محدودیت بایننس (Vision API)
-        url = f"https://data-api.binance.vision/api/v3/klines?symbol={pair}&interval=5m&limit=5"
-        
-        headers = {'User-Agent': 'Mozilla/5.0'}
-        response = requests.get(url, headers=headers, timeout=5)
-        
+        response = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=10)
         if response.status_code != 200:
-            return None
-
-        res_5m = response.json()
-        if not isinstance(res_5m, list) or len(res_5m) < 2:
-            return None
-
-        last_close = float(res_5m[-1][4])
-        prev_close = float(res_5m[-2][4])
+            return []
         
-        trend_emoji = "🟢 مناسب برای خرید (Long)" if last_close > prev_close else "🔴 نزولی / صبر جهت ورود"
-        candle_count = "3/3 (تاییدیه ساختار بازار)" if last_close > prev_close else "1/3 (در حال اصلاح)"
-
-        report = (
-            f"⚙️ **گزارش تحلیل و ارزیابی فیوچرز سنتینل (مرجع: بایننس):**\n\n"
-            f"🔹 **ارز:** {pair}.P\n"
-            f"💰 **قیمت لحظه‌ای:** {last_close}\n"
-            f"📈 **مومنتوم تایم‌فریم 5m / 15m:** فعال\n"
-            f"🕯 **شمارش کندل‌ها:** کندل {candle_count}\n"
-            f"🎯 **سیگنال پیشنهادی:** {trend_emoji}\n\n"
-            f"💡 *تحلیل تخصصی:* داده‌ها مستقیماً از فید رسمی بایننس استخراج شد."
-        )
-        return report
+        data = response.json()
+        hot_list = []
+        
+        for item in data:
+            symbol = item.get('symbol', '')
+            # بررسی جفت‌ارزهای USDT و فیلتر اولیه نوسان مثبت و حجم مناسب
+            if symbol.endswith('USDT'):
+                price_change = float(item.get('priceChangePercent', 0))
+                volume = float(item.get('quoteVolume', 0))
+                
+                # فیلتر هوشمند: ارزهایی که بین 3 تا 50 درصد رشد مثبت داشتند و نقدینگی بالایی دارند
+                if 3.0 <= price_change <= 50.0 and volume > 1000000:
+                    hot_list.append({
+                        "symbol": symbol,
+                        "price": item.get('lastPrice'),
+                        "change": price_change,
+                        "volume": volume
+                    })
+        
+        # مرتب‌سازی بر اساس بیشترین درصد تغییر
+        hot_list = sorted(hot_list, key=lambda x: x['change'], reverse=True)
+        return hot_list[:3] # برترین‌ها برای جلوگیری از اسپم
     except Exception as e:
-        return None
+        print(f"Error fetching hot coins: {e}")
+        return []
 
-@app.get("/")
-def read_root():
-    return {"status": "Sentinel Binance VIP Bot is running!"}
-
-@app.post("/webhook")
-async def telegram_webhook(request: Request):
+def send_telegram_message(chat_id: int, text: str):
     try:
-        data = await request.json()
-        message = data.get("message", {})
-        chat_id = message.get("chat", {}).get("id")
-        text = message.get("text", "").strip()
-
-        if not chat_id or not text:
-            return {"status": "ignored"}
-
-        if text.upper() == "/START":
-            reply_text = (
-                "🛡 به ربات تحلیلگر **سنتینل (متصل به بایننس)** خوش آمدید.\n\n"
-                "لطفاً نام ارز مورد نظر خود (مثل `near`، `bnb`، `ada`) را ارسال کنید تا تحلیل زنده فیوچرز صادر شود."
-            )
-        else:
-            analysis_result = get_binance_analysis(text)
-            if analysis_result:
-                reply_text = analysis_result
-            else:
-                reply_text = (
-                    f"❌ نماد «{text}» در بایننس یافت نشد یا ورودی نامعتبر است.\n\n"
-                    "لطفاً فقط نماد صحیح ارزها را ارسال کنید."
-                )
-
-        url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
-        payload = {"chat_id": chat_id, "text": reply_text, "parse_mode": "Markdown"}
-        requests.post(url, json=payload)
-
-        return {"status": "ok"}
+        url = f"{TELEGRAM_API_URL}/sendMessage"
+        payload = {"chat_id": chat_id, "text": text, "parse_mode": "Markdown"}
+        requests.post(url, json=payload, timeout=5)
     except Exception as e:
-        return {"status": "error", "detail": str(e)}
+        print(f"Error sending message: {e}")
+
+@app.post("/")
+async def telegram_webhook(request: Request):
+    data = await request.json()
+    
+    if "message" in data:
+        message = data["message"]
+        chat_id = message["chat"]["id"]
+        text = message.get("text", "").strip()
+        
+        # بررسی محدودیت لیست مجاز VIP (سقف ۱۰ نفر)
+        if ALLOWED_USERS and chat_id not in ALLOWED_USERS:
+            if len(ALLOWED_USERS) < 10:
+                ALLOWED_USERS.append(chat_id)
+            else:
+                send_telegram_message(chat_id, "⛔ دسترسی غیرمجاز: این ربات اختصاصی و محدود به لیست VIP است.")
+                return {"status": "unauthorized"}
+        
+        if text.startswith("/start"):
+            welcome_text = (
+                "🤖 **به دیده‌بان اتوماتیک سنتینل خوش آمدید!**\n\n"
+                "این ربات به صورت هوشمند در پس‌زمینه بازار را اسکن کرده و میم‌کوین‌ها و ارزهای داغ دارای حجم مشکوک را به صورت منظم گزارش می‌دهد."
+            )
+            send_telegram_message(chat_id, welcome_text)
+            
+    return {"status": "ok"}
